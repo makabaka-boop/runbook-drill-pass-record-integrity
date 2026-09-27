@@ -1,0 +1,39 @@
+# 纯前端离线手册：无后端、无在线服务。
+# WEB_PORT 可在宿主侧覆盖： WEB_PORT=9000 docker compose up -d web
+services:
+  web:
+    build:
+      context: .
+      target: web
+    image: offline-manual-web:latest
+    environment:
+      # 仅用于文档/脚本引用；Nginx 容器内固定监听 80，宿主映射由 WEB_PORT 决定
+      - WEB_PORT=${WEB_PORT:-8080}
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+  # 一次性验收服务：类型检查 + Vitest 状态协调 + 生产构建 + Playwright 中断/离线重载
+  # 用法： docker compose build verify && docker compose up --build verify
+  verify:
+    build:
+      context: .
+      target: verify
+    image: offline-manual-verify:latest
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      - BASE_URL=http://web
+      - PW_NO_WEB_SERVER=1
+    # 验收完成后容器退出（退出码即验收结论），不长期运行
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - "npm run typecheck && npm run test && npm run build && npx playwright test"
